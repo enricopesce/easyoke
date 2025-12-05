@@ -111,379 +111,575 @@ service_gateway = oci.core.ServiceGateway(
     display_name="ServiceGateway",
 )
 
-# Create a separate Security List for the Public Subnet
-public_security_list = oci.core.SecurityList(
-    "PublicSecurityList",
+###################################################################################################################################
+# Network Security Groups (NSGs) - Oracle's recommended approach for IaC
+# Reference: https://docs.oracle.com/en-us/iaas/Content/ContEng/Tasks/contengbestpractices_topic-Security-best-practices.htm
+###################################################################################################################################
+
+# Create NSG for API Endpoint (Public Subnet)
+api_nsg = oci.core.NetworkSecurityGroup(
+    "ApiEndpointNSG",
     compartment_id=compartment_id,
     vcn_id=vcn.id,
-    display_name="PublicSecurityList",
-    ingress_security_rules=[
-        oci.core.SecurityListIngressSecurityRuleArgs(
-            description="Kubernetes worker to Kubernetes API endpoint communication.",
-            protocol="6",
-            source=workers_subnet_address,
-            source_type="CIDR_BLOCK",
-            tcp_options=oci.core.SecurityListIngressSecurityRuleTcpOptionsArgs(
-                max=6443,
-                min=6443,
-            ),
-        ),
-        oci.core.SecurityListIngressSecurityRuleArgs(
-            description="Kubernetes worker to Kubernetes API endpoint communication.",
-            protocol="6",
-            source=workers_subnet_address,
-            source_type="CIDR_BLOCK",
-            tcp_options=oci.core.SecurityListIngressSecurityRuleTcpOptionsArgs(
-                max=12250,
-                min=12250,
-            ),
-        ),
-        oci.core.SecurityListIngressSecurityRuleArgs(
-            description="Path discovery",
-            icmp_options=oci.core.SecurityListIngressSecurityRuleIcmpOptionsArgs(
-                code=4,
-                type=3,
-            ),
-            protocol="1",
-            source=workers_subnet_address,
-            source_type="CIDR_BLOCK",
-        ),
-        oci.core.SecurityListIngressSecurityRuleArgs(
-            description="Pod to Kubernetes API endpoint communication (when using VCN-native pod networking).",
-            protocol="6",
-            source=pods_subnet_address,
-            source_type="CIDR_BLOCK",
-            tcp_options=oci.core.SecurityListIngressSecurityRuleTcpOptionsArgs(
-                max=6443,
-                min=6443,
-            ),
-        ),
-        oci.core.SecurityListIngressSecurityRuleArgs(
-            description="Pod to Kubernetes API endpoint communication (when using VCN-native pod networking).",
-            protocol="6",
-            source=pods_subnet_address,
-            source_type="CIDR_BLOCK",
-            tcp_options=oci.core.SecurityListIngressSecurityRuleTcpOptionsArgs(
-                max=12250,
-                min=12250,
-            ),
-        ),
-        oci.core.SecurityListIngressSecurityRuleArgs(
-            description="External access to Kubernetes API endpoint.",
-            protocol="6",
-            source="0.0.0.0/0",
-            source_type="CIDR_BLOCK",
-            tcp_options=oci.core.SecurityListIngressSecurityRuleTcpOptionsArgs(
-                max=6443,
-                min=6443,
-            ),
-        ),
-    ],
-    egress_security_rules=[
-        oci.core.SecurityListEgressSecurityRuleArgs(
-            description="Allow Kubernetes API endpoint to communicate with OKE.",
-            protocol="6",
-            destination=oci.core.get_services().services[0].cidr_block,
-            destination_type="SERVICE_CIDR_BLOCK",
-        ),
-        oci.core.SecurityListEgressSecurityRuleArgs(
-            description="Path discovery",
-            icmp_options=oci.core.SecurityListEgressSecurityRuleIcmpOptionsArgs(
-                code=4,
-                type=3,
-            ),
-            protocol="1",
-            destination=oci.core.get_services().services[0].cidr_block,
-            destination_type="SERVICE_CIDR_BLOCK",
-        ),
-        oci.core.SecurityListEgressSecurityRuleArgs(
-            description="Allow Kubernetes API endpoint to communicate with worker nodes.",
-            protocol="6",
-            destination=workers_subnet_address,
-            destination_type="CIDR_BLOCK",
-            tcp_options=oci.core.SecurityListEgressSecurityRuleTcpOptionsArgs(
-                max=10250,
-                min=10250,
-            ),
-        ),
-        oci.core.SecurityListEgressSecurityRuleArgs(
-            description="Path discovery",
-            icmp_options=oci.core.SecurityListEgressSecurityRuleIcmpOptionsArgs(
-                code=4,
-                type=3,
-            ),
-            protocol="1",
-            destination=workers_subnet_address,
-            destination_type="CIDR_BLOCK",
-        ),
-        oci.core.SecurityListEgressSecurityRuleArgs(
-            description="Allow Kubernetes API endpoint to communicate with pods (when using VCN-native pod networking).",
-            protocol="all",
-            destination=pods_subnet_address,
-            destination_type="CIDR_BLOCK",
-        ),
-    ],
+    display_name="ApiEndpointNSG",
 )
 
-# Create a separate Security List for the Workers Subnet
-workers_security_list = oci.core.SecurityList(
-    "WorkersSecurityList",
+# Create NSG for Worker Nodes
+workers_nsg = oci.core.NetworkSecurityGroup(
+    "WorkersNSG",
     compartment_id=compartment_id,
     vcn_id=vcn.id,
-    display_name="WorkersSecurityList",
-    ingress_security_rules=[
-        oci.core.SecurityListIngressSecurityRuleArgs(
-            description="Allow Kubernetes API endpoint to communicate with worker nodes.",
-            protocol="6",
-            source=public_subnet_address,
-            source_type="CIDR_BLOCK",
-            tcp_options=oci.core.SecurityListIngressSecurityRuleTcpOptionsArgs(
-                min=10250,
-                max=10250,
-            ),
-        ),
-        oci.core.SecurityListIngressSecurityRuleArgs(
-            description="Path discovery",
-            icmp_options=oci.core.SecurityListIngressSecurityRuleIcmpOptionsArgs(
-                code=4,
-                type=3,
-            ),
-            protocol="1",
-            source="0.0.0.0/0",
-            source_type="CIDR_BLOCK",
-        ),
-        oci.core.SecurityListIngressSecurityRuleArgs(
-            description="Load balancer to worker nodes node ports.",
-            protocol="6",
-            source=loadbalancers_subnet_address,
-            source_type="CIDR_BLOCK",
-            tcp_options=oci.core.SecurityListIngressSecurityRuleTcpOptionsArgs(
-                min=30000,
-                max=32767,
-            ),
-        ),
-        oci.core.SecurityListIngressSecurityRuleArgs(
-            description="Allow load balancer to communicate with kube-proxy on worker nodes.",
-            protocol="6",
-            source=loadbalancers_subnet_address,
-            source_type="CIDR_BLOCK",
-            tcp_options=oci.core.SecurityListIngressSecurityRuleTcpOptionsArgs(
-                min=10256,
-                max=12250,
-            ),
-        ),
-    ],
-    egress_security_rules=[
-        oci.core.SecurityListEgressSecurityRuleArgs(
-            description="Allow worker nodes to access pods.",
-            protocol="6",
-            destination=pods_subnet_address,
-            destination_type="CIDR_BLOCK",
-        ),
-        oci.core.SecurityListEgressSecurityRuleArgs(
-            description="Path discovery",
-            icmp_options=oci.core.SecurityListEgressSecurityRuleIcmpOptionsArgs(
-                code=4,
-                type=3,
-            ),
-            protocol="1",
-            destination="0.0.0.0/0",
-            destination_type="CIDR_BLOCK",
-        ),
-        oci.core.SecurityListEgressSecurityRuleArgs(
-            description="Allow worker nodes to communicate with OKE.",
-            protocol="6",
-            destination=oci.core.get_services().services[0].cidr_block,
-            destination_type="SERVICE_CIDR_BLOCK",
-        ),
-        oci.core.SecurityListEgressSecurityRuleArgs(
-            description="Kubernetes worker to Kubernetes API endpoint communication.",
-            protocol="6",
-            destination=public_subnet_address,
-            destination_type="CIDR_BLOCK",
-            tcp_options=oci.core.SecurityListEgressSecurityRuleTcpOptionsArgs(
-                max=6443,
-                min=6443,
-            ),
-        ),
-        oci.core.SecurityListEgressSecurityRuleArgs(
-            description="Kubernetes worker to Kubernetes API endpoint communication.",
-            protocol="6",
-            destination=public_subnet_address,
-            destination_type="CIDR_BLOCK",
-            tcp_options=oci.core.SecurityListEgressSecurityRuleTcpOptionsArgs(
-                max=12250,
-                min=12250,
-            ),
-        ),
-        oci.core.SecurityListEgressSecurityRuleArgs(
-            description="Access to external (ex Dokcer) container registry",
-            protocol="6",
-            destination="0.0.0.0/0",
-            destination_type="CIDR_BLOCK",
-            tcp_options=oci.core.SecurityListEgressSecurityRuleTcpOptionsArgs(
-                max=443,
-                min=443,
-            ),
-        ),
-    ],
+    display_name="WorkersNSG",
 )
 
-# Create a separate Security List for the Pods Subnet
-pods_security_list = oci.core.SecurityList(
-    "PodSecurityList",
+# Create NSG for Pods
+pods_nsg = oci.core.NetworkSecurityGroup(
+    "PodsNSG",
     compartment_id=compartment_id,
     vcn_id=vcn.id,
-    display_name="PodSecurityList",
-    ingress_security_rules=[
-        oci.core.SecurityListIngressSecurityRuleArgs(
-            description="Allow worker nodes to access pods.",
-            protocol="all",
-            source=workers_subnet_address,
-            source_type="CIDR_BLOCK",
-        ),
-        oci.core.SecurityListIngressSecurityRuleArgs(
-            description="Allow Kubernetes API endpoint to communicate with pods.",
-            protocol="all",
-            source=public_subnet_address,
-            source_type="CIDR_BLOCK",
-        ),
-        oci.core.SecurityListIngressSecurityRuleArgs(
-            description="Allow pods to communicate with other pods.",
-            protocol="all",
-            source=pods_subnet_address,
-            source_type="CIDR_BLOCK",
-        ),
-    ],
-    egress_security_rules=[
-        oci.core.SecurityListEgressSecurityRuleArgs(
-            description="Allow pods to communicate with other pods.",
-            protocol="all",
-            destination=pods_subnet_address,
-            destination_type="CIDR_BLOCK",
-        ),
-        oci.core.SecurityListEgressSecurityRuleArgs(
-            description="Path discovery",
-            icmp_options=oci.core.SecurityListEgressSecurityRuleIcmpOptionsArgs(
-                code=4,
-                type=3,
-            ),
-            protocol="1",
-            destination=oci.core.get_services().services[0].cidr_block,
-            destination_type="SERVICE_CIDR_BLOCK",
-        ),
-        oci.core.SecurityListEgressSecurityRuleArgs(
-            description="Allow pods to communicate with OCI services.",
-            protocol="6",
-            destination=oci.core.get_services().services[0].cidr_block,
-            destination_type="SERVICE_CIDR_BLOCK",
-        ),
-        oci.core.SecurityListEgressSecurityRuleArgs(
-            description="(optional) Allow pods to communicate with internet.",
-            protocol="6",
-            destination="0.0.0.0/0",
-            destination_type="CIDR_BLOCK",
-            tcp_options=oci.core.SecurityListEgressSecurityRuleTcpOptionsArgs(
-                max=443,
-                min=443,
-            ),
-        ),
-        oci.core.SecurityListEgressSecurityRuleArgs(
-            description="Pod to Kubernetes API endpoint communication (when using VCN-native pod networking).",
-            protocol="6",
-            destination=public_subnet_address,
-            destination_type="CIDR_BLOCK",
-            tcp_options=oci.core.SecurityListEgressSecurityRuleTcpOptionsArgs(
-                max=6443,
-                min=6443,
-            ),
-        ),
-        oci.core.SecurityListEgressSecurityRuleArgs(
-            description="Pod to Kubernetes API endpoint communication (when using VCN-native pod networking).",
-            protocol="6",
-            destination=public_subnet_address,
-            destination_type="CIDR_BLOCK",
-            tcp_options=oci.core.SecurityListEgressSecurityRuleTcpOptionsArgs(
-                max=12250,
-                min=12250,
-            ),
-        ),
-    ],
+    display_name="PodsNSG",
 )
 
-
-# Create a separate Security List for the Public Subnet
-loadbalancers_security_list = oci.core.SecurityList(
-    "LoadBalancersSecurityList",
+# Create NSG for Load Balancers
+loadbalancers_nsg = oci.core.NetworkSecurityGroup(
+    "LoadBalancersNSG",
     compartment_id=compartment_id,
     vcn_id=vcn.id,
-    display_name="LoadBalancersSecurityList",
-    ingress_security_rules=[
-        oci.core.SecurityListIngressSecurityRuleArgs(
-            description="Load balancer listener protocol and port. Customize as required.",
-            protocol="6",
-            source=pods_subnet_address,
-            source_type="CIDR_BLOCK",
-            tcp_options=oci.core.SecurityListIngressSecurityRuleTcpOptionsArgs(
-                max=443,
-                min=443,
-            ),
-        ),
-        oci.core.SecurityListIngressSecurityRuleArgs(
-            description="Load balancer listener protocol and port. Customize as required.",
-            protocol="6",
-            source=pods_subnet_address,
-            source_type="CIDR_BLOCK",
-            tcp_options=oci.core.SecurityListIngressSecurityRuleTcpOptionsArgs(
-                max=80,
-                min=80,
-            ),
-        ),
-        oci.core.SecurityListIngressSecurityRuleArgs(
-            description="Load balancer listener protocol and port. Customize as required.",
-            protocol="6",
-            source="0.0.0.0/0",
-            source_type="CIDR_BLOCK",
-            tcp_options=oci.core.SecurityListIngressSecurityRuleTcpOptionsArgs(
-                max=443,
-                min=443,
-            ),
-        ),
-        oci.core.SecurityListIngressSecurityRuleArgs(
-            description="Load balancer listener protocol and port. Customize as required.",
-            protocol="6",
-            source="0.0.0.0/0",
-            source_type="CIDR_BLOCK",
-            tcp_options=oci.core.SecurityListIngressSecurityRuleTcpOptionsArgs(
-                max=80,
-                min=80,
-            ),
-        ),
-    ],
-    egress_security_rules=[
-        oci.core.SecurityListEgressSecurityRuleArgs(
-            description="Load balancer to worker nodes node ports.",
-            protocol="6",
-            destination=workers_subnet_address,
-            destination_type="CIDR_BLOCK",
-            tcp_options=oci.core.SecurityListEgressSecurityRuleTcpOptionsArgs(
-                min=30000,
-                max=32767,
-            ),
-        ),
-        oci.core.SecurityListEgressSecurityRuleArgs(
-            description="Allow load balancer to communicate with kube-proxy on worker nodes.",
-            protocol="6",
-            destination=workers_subnet_address,
-            destination_type="CIDR_BLOCK",
-            tcp_options=oci.core.SecurityListEgressSecurityRuleTcpOptionsArgs(
-                max=10256,
-                min=10256,
-            ),
-        ),
-    ],
+    display_name="LoadBalancersNSG",
 )
 
+###################################################################################################################################
+# API Endpoint NSG Rules
+###################################################################################################################################
+
+# API Endpoint Ingress: Workers TCP/6443
+api_ingress_workers_6443 = oci.core.NetworkSecurityGroupSecurityRule(
+    "ApiIngressWorkers6443",
+    network_security_group_id=api_nsg.id,
+    direction="INGRESS",
+    protocol="6",
+    source=workers_subnet_address,
+    source_type="CIDR_BLOCK",
+    description="Kubernetes worker to Kubernetes API endpoint communication.",
+    tcp_options=oci.core.NetworkSecurityGroupSecurityRuleTcpOptionsArgs(
+        destination_port_range=oci.core.NetworkSecurityGroupSecurityRuleTcpOptionsDestinationPortRangeArgs(
+            min=6443,
+            max=6443,
+        ),
+    ),
+)
+
+# API Endpoint Ingress: Workers TCP/12250
+api_ingress_workers_12250 = oci.core.NetworkSecurityGroupSecurityRule(
+    "ApiIngressWorkers12250",
+    network_security_group_id=api_nsg.id,
+    direction="INGRESS",
+    protocol="6",
+    source=workers_subnet_address,
+    source_type="CIDR_BLOCK",
+    description="Kubernetes worker to control plane communication.",
+    tcp_options=oci.core.NetworkSecurityGroupSecurityRuleTcpOptionsArgs(
+        destination_port_range=oci.core.NetworkSecurityGroupSecurityRuleTcpOptionsDestinationPortRangeArgs(
+            min=12250,
+            max=12250,
+        ),
+    ),
+)
+
+# API Endpoint Ingress: Workers ICMP path discovery
+api_ingress_workers_icmp = oci.core.NetworkSecurityGroupSecurityRule(
+    "ApiIngressWorkersIcmp",
+    network_security_group_id=api_nsg.id,
+    direction="INGRESS",
+    protocol="1",
+    source=workers_subnet_address,
+    source_type="CIDR_BLOCK",
+    description="Path discovery",
+    icmp_options=oci.core.NetworkSecurityGroupSecurityRuleIcmpOptionsArgs(
+        type=3,
+        code=4,
+    ),
+)
+
+# API Endpoint Ingress: Pods TCP/6443
+api_ingress_pods_6443 = oci.core.NetworkSecurityGroupSecurityRule(
+    "ApiIngressPods6443",
+    network_security_group_id=api_nsg.id,
+    direction="INGRESS",
+    protocol="6",
+    source=pods_subnet_address,
+    source_type="CIDR_BLOCK",
+    description="Pod to Kubernetes API endpoint communication (VCN-native pod networking).",
+    tcp_options=oci.core.NetworkSecurityGroupSecurityRuleTcpOptionsArgs(
+        destination_port_range=oci.core.NetworkSecurityGroupSecurityRuleTcpOptionsDestinationPortRangeArgs(
+            min=6443,
+            max=6443,
+        ),
+    ),
+)
+
+# API Endpoint Ingress: Pods TCP/12250
+api_ingress_pods_12250 = oci.core.NetworkSecurityGroupSecurityRule(
+    "ApiIngressPods12250",
+    network_security_group_id=api_nsg.id,
+    direction="INGRESS",
+    protocol="6",
+    source=pods_subnet_address,
+    source_type="CIDR_BLOCK",
+    description="Pod to Kubernetes API endpoint communication (VCN-native pod networking).",
+    tcp_options=oci.core.NetworkSecurityGroupSecurityRuleTcpOptionsArgs(
+        destination_port_range=oci.core.NetworkSecurityGroupSecurityRuleTcpOptionsDestinationPortRangeArgs(
+            min=12250,
+            max=12250,
+        ),
+    ),
+)
+
+# API Endpoint Ingress: External access TCP/6443
+# Note: Consider restricting this to specific CIDR blocks for production
+api_ingress_external_6443 = oci.core.NetworkSecurityGroupSecurityRule(
+    "ApiIngressExternal6443",
+    network_security_group_id=api_nsg.id,
+    direction="INGRESS",
+    protocol="6",
+    source="0.0.0.0/0",
+    source_type="CIDR_BLOCK",
+    description="External access to Kubernetes API endpoint.",
+    tcp_options=oci.core.NetworkSecurityGroupSecurityRuleTcpOptionsArgs(
+        destination_port_range=oci.core.NetworkSecurityGroupSecurityRuleTcpOptionsDestinationPortRangeArgs(
+            min=6443,
+            max=6443,
+        ),
+    ),
+)
+
+# API Endpoint Egress: OCI Services
+api_egress_oci_services = oci.core.NetworkSecurityGroupSecurityRule(
+    "ApiEgressOciServices",
+    network_security_group_id=api_nsg.id,
+    direction="EGRESS",
+    protocol="6",
+    destination=oci.core.get_services().services[0].cidr_block,
+    destination_type="SERVICE_CIDR_BLOCK",
+    description="Allow Kubernetes API endpoint to communicate with OKE.",
+)
+
+# API Endpoint Egress: OCI Services ICMP
+api_egress_oci_services_icmp = oci.core.NetworkSecurityGroupSecurityRule(
+    "ApiEgressOciServicesIcmp",
+    network_security_group_id=api_nsg.id,
+    direction="EGRESS",
+    protocol="1",
+    destination=oci.core.get_services().services[0].cidr_block,
+    destination_type="SERVICE_CIDR_BLOCK",
+    description="Path discovery",
+    icmp_options=oci.core.NetworkSecurityGroupSecurityRuleIcmpOptionsArgs(
+        type=3,
+        code=4,
+    ),
+)
+
+# API Endpoint Egress: Workers TCP/10250
+api_egress_workers_10250 = oci.core.NetworkSecurityGroupSecurityRule(
+    "ApiEgressWorkers10250",
+    network_security_group_id=api_nsg.id,
+    direction="EGRESS",
+    protocol="6",
+    destination=workers_subnet_address,
+    destination_type="CIDR_BLOCK",
+    description="Allow Kubernetes API endpoint to communicate with worker nodes.",
+    tcp_options=oci.core.NetworkSecurityGroupSecurityRuleTcpOptionsArgs(
+        destination_port_range=oci.core.NetworkSecurityGroupSecurityRuleTcpOptionsDestinationPortRangeArgs(
+            min=10250,
+            max=10250,
+        ),
+    ),
+)
+
+# API Endpoint Egress: Workers ICMP
+api_egress_workers_icmp = oci.core.NetworkSecurityGroupSecurityRule(
+    "ApiEgressWorkersIcmp",
+    network_security_group_id=api_nsg.id,
+    direction="EGRESS",
+    protocol="1",
+    destination=workers_subnet_address,
+    destination_type="CIDR_BLOCK",
+    description="Path discovery",
+    icmp_options=oci.core.NetworkSecurityGroupSecurityRuleIcmpOptionsArgs(
+        type=3,
+        code=4,
+    ),
+)
+
+# API Endpoint Egress: Pods ALL
+api_egress_pods_all = oci.core.NetworkSecurityGroupSecurityRule(
+    "ApiEgressPodsAll",
+    network_security_group_id=api_nsg.id,
+    direction="EGRESS",
+    protocol="all",
+    destination=pods_subnet_address,
+    destination_type="CIDR_BLOCK",
+    description="Allow Kubernetes API endpoint to communicate with pods (VCN-native pod networking).",
+)
+
+###################################################################################################################################
+# Workers NSG Rules
+###################################################################################################################################
+
+# Workers Ingress: API Endpoint TCP/10250
+workers_ingress_api_10250 = oci.core.NetworkSecurityGroupSecurityRule(
+    "WorkersIngressApi10250",
+    network_security_group_id=workers_nsg.id,
+    direction="INGRESS",
+    protocol="6",
+    source=public_subnet_address,
+    source_type="CIDR_BLOCK",
+    description="Allow Kubernetes API endpoint to communicate with worker nodes.",
+    tcp_options=oci.core.NetworkSecurityGroupSecurityRuleTcpOptionsArgs(
+        destination_port_range=oci.core.NetworkSecurityGroupSecurityRuleTcpOptionsDestinationPortRangeArgs(
+            min=10250,
+            max=10250,
+        ),
+    ),
+)
+
+# Workers Ingress: ICMP path discovery from API endpoint
+workers_ingress_api_icmp = oci.core.NetworkSecurityGroupSecurityRule(
+    "WorkersIngressApiIcmp",
+    network_security_group_id=workers_nsg.id,
+    direction="INGRESS",
+    protocol="1",
+    source=public_subnet_address,
+    source_type="CIDR_BLOCK",
+    description="Path discovery",
+    icmp_options=oci.core.NetworkSecurityGroupSecurityRuleIcmpOptionsArgs(
+        type=3,
+        code=4,
+    ),
+)
+
+# Workers Ingress: Load Balancers NodePort range
+workers_ingress_lb_nodeports = oci.core.NetworkSecurityGroupSecurityRule(
+    "WorkersIngressLbNodePorts",
+    network_security_group_id=workers_nsg.id,
+    direction="INGRESS",
+    protocol="6",
+    source=loadbalancers_subnet_address,
+    source_type="CIDR_BLOCK",
+    description="Load balancer to worker nodes node ports.",
+    tcp_options=oci.core.NetworkSecurityGroupSecurityRuleTcpOptionsArgs(
+        destination_port_range=oci.core.NetworkSecurityGroupSecurityRuleTcpOptionsDestinationPortRangeArgs(
+            min=30000,
+            max=32767,
+        ),
+    ),
+)
+
+# Workers Ingress: Load Balancers kube-proxy health check (fixed port range)
+workers_ingress_lb_kubeproxy = oci.core.NetworkSecurityGroupSecurityRule(
+    "WorkersIngressLbKubeProxy",
+    network_security_group_id=workers_nsg.id,
+    direction="INGRESS",
+    protocol="6",
+    source=loadbalancers_subnet_address,
+    source_type="CIDR_BLOCK",
+    description="Allow load balancer to communicate with kube-proxy on worker nodes.",
+    tcp_options=oci.core.NetworkSecurityGroupSecurityRuleTcpOptionsArgs(
+        destination_port_range=oci.core.NetworkSecurityGroupSecurityRuleTcpOptionsDestinationPortRangeArgs(
+            min=10256,
+            max=10256,
+        ),
+    ),
+)
+
+# Workers Egress: Pods ALL (fixed to use 'all' protocol)
+workers_egress_pods_all = oci.core.NetworkSecurityGroupSecurityRule(
+    "WorkersEgressPodsAll",
+    network_security_group_id=workers_nsg.id,
+    direction="EGRESS",
+    protocol="all",
+    destination=pods_subnet_address,
+    destination_type="CIDR_BLOCK",
+    description="Allow worker nodes to access pods.",
+)
+
+# Workers Egress: ICMP path discovery
+workers_egress_icmp = oci.core.NetworkSecurityGroupSecurityRule(
+    "WorkersEgressIcmp",
+    network_security_group_id=workers_nsg.id,
+    direction="EGRESS",
+    protocol="1",
+    destination="0.0.0.0/0",
+    destination_type="CIDR_BLOCK",
+    description="Path discovery",
+    icmp_options=oci.core.NetworkSecurityGroupSecurityRuleIcmpOptionsArgs(
+        type=3,
+        code=4,
+    ),
+)
+
+# Workers Egress: OCI Services
+workers_egress_oci_services = oci.core.NetworkSecurityGroupSecurityRule(
+    "WorkersEgressOciServices",
+    network_security_group_id=workers_nsg.id,
+    direction="EGRESS",
+    protocol="6",
+    destination=oci.core.get_services().services[0].cidr_block,
+    destination_type="SERVICE_CIDR_BLOCK",
+    description="Allow worker nodes to communicate with OKE.",
+)
+
+# Workers Egress: API Endpoint TCP/6443
+workers_egress_api_6443 = oci.core.NetworkSecurityGroupSecurityRule(
+    "WorkersEgressApi6443",
+    network_security_group_id=workers_nsg.id,
+    direction="EGRESS",
+    protocol="6",
+    destination=public_subnet_address,
+    destination_type="CIDR_BLOCK",
+    description="Kubernetes worker to Kubernetes API endpoint communication.",
+    tcp_options=oci.core.NetworkSecurityGroupSecurityRuleTcpOptionsArgs(
+        destination_port_range=oci.core.NetworkSecurityGroupSecurityRuleTcpOptionsDestinationPortRangeArgs(
+            min=6443,
+            max=6443,
+        ),
+    ),
+)
+
+# Workers Egress: API Endpoint TCP/12250
+workers_egress_api_12250 = oci.core.NetworkSecurityGroupSecurityRule(
+    "WorkersEgressApi12250",
+    network_security_group_id=workers_nsg.id,
+    direction="EGRESS",
+    protocol="6",
+    destination=public_subnet_address,
+    destination_type="CIDR_BLOCK",
+    description="Kubernetes worker to Kubernetes API endpoint communication.",
+    tcp_options=oci.core.NetworkSecurityGroupSecurityRuleTcpOptionsArgs(
+        destination_port_range=oci.core.NetworkSecurityGroupSecurityRuleTcpOptionsDestinationPortRangeArgs(
+            min=12250,
+            max=12250,
+        ),
+    ),
+)
+
+# Workers Egress: Internet HTTPS for container registries
+workers_egress_internet_https = oci.core.NetworkSecurityGroupSecurityRule(
+    "WorkersEgressInternetHttps",
+    network_security_group_id=workers_nsg.id,
+    direction="EGRESS",
+    protocol="6",
+    destination="0.0.0.0/0",
+    destination_type="CIDR_BLOCK",
+    description="Access to external (ex Docker) container registry",
+    tcp_options=oci.core.NetworkSecurityGroupSecurityRuleTcpOptionsArgs(
+        destination_port_range=oci.core.NetworkSecurityGroupSecurityRuleTcpOptionsDestinationPortRangeArgs(
+            min=443,
+            max=443,
+        ),
+    ),
+)
+
+###################################################################################################################################
+# Pods NSG Rules
+###################################################################################################################################
+
+# Pods Ingress: Workers ALL
+pods_ingress_workers_all = oci.core.NetworkSecurityGroupSecurityRule(
+    "PodsIngressWorkersAll",
+    network_security_group_id=pods_nsg.id,
+    direction="INGRESS",
+    protocol="all",
+    source=workers_subnet_address,
+    source_type="CIDR_BLOCK",
+    description="Allow worker nodes to access pods.",
+)
+
+# Pods Ingress: API Endpoint ALL
+pods_ingress_api_all = oci.core.NetworkSecurityGroupSecurityRule(
+    "PodsIngressApiAll",
+    network_security_group_id=pods_nsg.id,
+    direction="INGRESS",
+    protocol="all",
+    source=public_subnet_address,
+    source_type="CIDR_BLOCK",
+    description="Allow Kubernetes API endpoint to communicate with pods.",
+)
+
+# Pods Ingress: Inter-pod ALL
+pods_ingress_pods_all = oci.core.NetworkSecurityGroupSecurityRule(
+    "PodsIngressPodsAll",
+    network_security_group_id=pods_nsg.id,
+    direction="INGRESS",
+    protocol="all",
+    source=pods_subnet_address,
+    source_type="CIDR_BLOCK",
+    description="Allow pods to communicate with other pods.",
+)
+
+# Pods Egress: Inter-pod ALL
+pods_egress_pods_all = oci.core.NetworkSecurityGroupSecurityRule(
+    "PodsEgressPodsAll",
+    network_security_group_id=pods_nsg.id,
+    direction="EGRESS",
+    protocol="all",
+    destination=pods_subnet_address,
+    destination_type="CIDR_BLOCK",
+    description="Allow pods to communicate with other pods.",
+)
+
+# Pods Egress: OCI Services ICMP
+pods_egress_oci_services_icmp = oci.core.NetworkSecurityGroupSecurityRule(
+    "PodsEgressOciServicesIcmp",
+    network_security_group_id=pods_nsg.id,
+    direction="EGRESS",
+    protocol="1",
+    destination=oci.core.get_services().services[0].cidr_block,
+    destination_type="SERVICE_CIDR_BLOCK",
+    description="Path discovery",
+    icmp_options=oci.core.NetworkSecurityGroupSecurityRuleIcmpOptionsArgs(
+        type=3,
+        code=4,
+    ),
+)
+
+# Pods Egress: OCI Services TCP
+pods_egress_oci_services = oci.core.NetworkSecurityGroupSecurityRule(
+    "PodsEgressOciServices",
+    network_security_group_id=pods_nsg.id,
+    direction="EGRESS",
+    protocol="6",
+    destination=oci.core.get_services().services[0].cidr_block,
+    destination_type="SERVICE_CIDR_BLOCK",
+    description="Allow pods to communicate with OCI services.",
+)
+
+# Pods Egress: Internet HTTPS (optional)
+pods_egress_internet_https = oci.core.NetworkSecurityGroupSecurityRule(
+    "PodsEgressInternetHttps",
+    network_security_group_id=pods_nsg.id,
+    direction="EGRESS",
+    protocol="6",
+    destination="0.0.0.0/0",
+    destination_type="CIDR_BLOCK",
+    description="(optional) Allow pods to communicate with internet.",
+    tcp_options=oci.core.NetworkSecurityGroupSecurityRuleTcpOptionsArgs(
+        destination_port_range=oci.core.NetworkSecurityGroupSecurityRuleTcpOptionsDestinationPortRangeArgs(
+            min=443,
+            max=443,
+        ),
+    ),
+)
+
+# Pods Egress: API Endpoint TCP/6443
+pods_egress_api_6443 = oci.core.NetworkSecurityGroupSecurityRule(
+    "PodsEgressApi6443",
+    network_security_group_id=pods_nsg.id,
+    direction="EGRESS",
+    protocol="6",
+    destination=public_subnet_address,
+    destination_type="CIDR_BLOCK",
+    description="Pod to Kubernetes API endpoint communication (VCN-native pod networking).",
+    tcp_options=oci.core.NetworkSecurityGroupSecurityRuleTcpOptionsArgs(
+        destination_port_range=oci.core.NetworkSecurityGroupSecurityRuleTcpOptionsDestinationPortRangeArgs(
+            min=6443,
+            max=6443,
+        ),
+    ),
+)
+
+# Pods Egress: API Endpoint TCP/12250
+pods_egress_api_12250 = oci.core.NetworkSecurityGroupSecurityRule(
+    "PodsEgressApi12250",
+    network_security_group_id=pods_nsg.id,
+    direction="EGRESS",
+    protocol="6",
+    destination=public_subnet_address,
+    destination_type="CIDR_BLOCK",
+    description="Pod to Kubernetes API endpoint communication (VCN-native pod networking).",
+    tcp_options=oci.core.NetworkSecurityGroupSecurityRuleTcpOptionsArgs(
+        destination_port_range=oci.core.NetworkSecurityGroupSecurityRuleTcpOptionsDestinationPortRangeArgs(
+            min=12250,
+            max=12250,
+        ),
+    ),
+)
+
+###################################################################################################################################
+# Load Balancers NSG Rules
+###################################################################################################################################
+
+# Load Balancers Ingress: Internet HTTPS
+lb_ingress_internet_https = oci.core.NetworkSecurityGroupSecurityRule(
+    "LbIngressInternetHttps",
+    network_security_group_id=loadbalancers_nsg.id,
+    direction="INGRESS",
+    protocol="6",
+    source="0.0.0.0/0",
+    source_type="CIDR_BLOCK",
+    description="Load balancer listener protocol and port. Customize as required.",
+    tcp_options=oci.core.NetworkSecurityGroupSecurityRuleTcpOptionsArgs(
+        destination_port_range=oci.core.NetworkSecurityGroupSecurityRuleTcpOptionsDestinationPortRangeArgs(
+            min=443,
+            max=443,
+        ),
+    ),
+)
+
+# Load Balancers Ingress: Internet HTTP
+lb_ingress_internet_http = oci.core.NetworkSecurityGroupSecurityRule(
+    "LbIngressInternetHttp",
+    network_security_group_id=loadbalancers_nsg.id,
+    direction="INGRESS",
+    protocol="6",
+    source="0.0.0.0/0",
+    source_type="CIDR_BLOCK",
+    description="Load balancer listener protocol and port. Customize as required.",
+    tcp_options=oci.core.NetworkSecurityGroupSecurityRuleTcpOptionsArgs(
+        destination_port_range=oci.core.NetworkSecurityGroupSecurityRuleTcpOptionsDestinationPortRangeArgs(
+            min=80,
+            max=80,
+        ),
+    ),
+)
+
+# Load Balancers Egress: Workers NodePort range
+lb_egress_workers_nodeports = oci.core.NetworkSecurityGroupSecurityRule(
+    "LbEgressWorkersNodePorts",
+    network_security_group_id=loadbalancers_nsg.id,
+    direction="EGRESS",
+    protocol="6",
+    destination=workers_subnet_address,
+    destination_type="CIDR_BLOCK",
+    description="Load balancer to worker nodes node ports.",
+    tcp_options=oci.core.NetworkSecurityGroupSecurityRuleTcpOptionsArgs(
+        destination_port_range=oci.core.NetworkSecurityGroupSecurityRuleTcpOptionsDestinationPortRangeArgs(
+            min=30000,
+            max=32767,
+        ),
+    ),
+)
+
+# Load Balancers Egress: Workers kube-proxy health check
+lb_egress_workers_kubeproxy = oci.core.NetworkSecurityGroupSecurityRule(
+    "LbEgressWorkersKubeProxy",
+    network_security_group_id=loadbalancers_nsg.id,
+    direction="EGRESS",
+    protocol="6",
+    destination=workers_subnet_address,
+    destination_type="CIDR_BLOCK",
+    description="Allow load balancer to communicate with kube-proxy on worker nodes.",
+    tcp_options=oci.core.NetworkSecurityGroupSecurityRuleTcpOptionsArgs(
+        destination_port_range=oci.core.NetworkSecurityGroupSecurityRuleTcpOptionsDestinationPortRangeArgs(
+            min=10256,
+            max=10256,
+        ),
+    ),
+)
+
+###################################################################################################################################
+# Route Tables
+###################################################################################################################################
 
 # Create a Route Table for the private subnet with a route via the NAT Gateway
 workers_route_table = oci.core.RouteTable(
@@ -536,7 +732,6 @@ loadbalancers_route_table = oci.core.RouteTable(
 public_subnet = oci.core.Subnet(
     "PublicSubnet",
     compartment_id=compartment_id,
-    security_list_ids=[public_security_list.id],
     vcn_id=vcn.id,
     cidr_block=public_subnet_address,
     display_name="PublicSubnet",
@@ -549,7 +744,6 @@ public_subnet = oci.core.Subnet(
 workers_subnet = oci.core.Subnet(
     "WorkersSubnet",
     compartment_id=compartment_id,
-    security_list_ids=[workers_security_list.id],
     vcn_id=vcn.id,
     cidr_block=workers_subnet_address,
     display_name="WorkersSubnet",
@@ -562,7 +756,6 @@ workers_subnet = oci.core.Subnet(
 pods_subnet = oci.core.Subnet(
     "PodsSubnet",
     compartment_id=compartment_id,
-    security_list_ids=[pods_security_list.id],
     vcn_id=vcn.id,
     cidr_block=pods_subnet_address,
     display_name="PodsSubnet",
@@ -575,7 +768,6 @@ pods_subnet = oci.core.Subnet(
 loadbalancers_subnet = oci.core.Subnet(
     "LoadBalancersSubnet",
     compartment_id=compartment_id,
-    security_list_ids=[loadbalancers_security_list.id],
     vcn_id=vcn.id,
     cidr_block=loadbalancers_subnet_address,
     display_name="LoadBalancersSubnet",

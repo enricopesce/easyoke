@@ -5,4 +5,4 @@ Pulumi.*.yaml
 notes.md
 kubeconfig
 Pulumi.dev.yaml
-oci-stack-statefile
+oci-stack-statefile__main__.py.backup
